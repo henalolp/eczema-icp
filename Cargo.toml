@@ -1,0 +1,5 @@
+[workspace]
+members = [
+    "src/eczema_backend"
+]
+resolver = "2"
