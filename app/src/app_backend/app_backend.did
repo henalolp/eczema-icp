@@ -1,0 +1,40 @@
+type CreateResourcePayload = record {
+  title : text;
+  description : text;
+  category : ResourceCategory;
+};
+type EczemaError = variant {
+  InvalidInput;
+  NotFound;
+  Unauthorized;
+  AlreadyExists;
+};
+type EczemaResource = record {
+  id : nat64;
+  title : text;
+  updated_at : nat64;
+  verified : bool;
+  description : text;
+  created_at : nat64;
+  category : ResourceCategory;
+};
+type ResourceCategory = variant {
+  Research;
+  Testimonial;
+  Prevention;
+  MedicalAdvice;
+  DietAdvice;
+  Treatment;
+};
+type Result = variant { Ok : EczemaResource; Err : EczemaError };
+type Result_1 = variant { Ok; Err : EczemaError };
+service : () -> {
+  create_resource : (CreateResourcePayload) -> (Result);
+  delete_resource : (nat64) -> (Result_1);
+  get_resource : (nat64) -> (Result) query;
+  list_resources : () -> (vec EczemaResource) query;
+  list_resources_by_category : (ResourceCategory) -> (vec EczemaResource) query;
+  search_resources : (text) -> (vec EczemaResource) query;
+  update_resource : (nat64, CreateResourcePayload) -> (Result);
+  verify_resource : (nat64) -> (Result);
+}
