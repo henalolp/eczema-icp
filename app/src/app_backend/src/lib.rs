@@ -37,7 +37,7 @@ pub struct CreateResourcePayload {
 pub enum EczemaError {
     NotFound,
     AlreadyExists,
-    InvalidInput,
+    InvalidInput(String),
     Unauthorized,
 }
 
@@ -46,6 +46,7 @@ type EczemaResult<T> = Result<T, EczemaError>;
 thread_local! {
     static ECZEMA_RESOURCES: RefCell<HashMap<u64, EczemaResource>> = RefCell::new(HashMap::new());
     static NEXT_ID: RefCell<u64> = RefCell::new(1);
+    static ADMIN: RefCell<Option<Principal>> = RefCell::new(None); // Define the admin
 }
 
 fn get_timestamp() -> u64 {
@@ -55,8 +56,31 @@ fn get_timestamp() -> u64 {
         .as_secs()
 }
 
+fn validate_input(title: &str, description: &str) -> Result<(), EczemaError> {
+    if title.is_empty() || title.len() > 100 {
+        return Err(EczemaError::InvalidInput("Title must be 1-100 characters long.".to_string()));
+    }
+    if description.is_empty() || description.len() > 500 {
+        return Err(EczemaError::InvalidInput("Description must be 1-500 characters long.".to_string()));
+    }
+    Ok(())
+}
+
+fn is_admin(caller: &Principal) -> bool {
+    ADMIN.with(|admin| admin.borrow().as_ref() == Some(caller))
+}
+
+#[ic_cdk_macros::update]
+fn set_admin(caller: Principal) -> EczemaResult<()> {
+    ADMIN.with(|admin| {
+        *admin.borrow_mut() = Some(caller);
+        Ok(())
+    })
+}
+
 #[ic_cdk_macros::update]
 fn create_resource(payload: CreateResourcePayload) -> EczemaResult<EczemaResource> {
+    validate_input(&payload.title, &payload.description)?;
     NEXT_ID.with(|next_id| {
         ECZEMA_RESOURCES.with(|resources| {
             let id = *next_id.borrow();
@@ -115,6 +139,7 @@ fn list_resources_by_category(category: ResourceCategory) -> Vec<EczemaResource>
 
 #[ic_cdk_macros::update]
 fn update_resource(id: u64, payload: CreateResourcePayload) -> EczemaResult<EczemaResource> {
+    validate_input(&payload.title, &payload.description)?;
     ECZEMA_RESOURCES.with(|resources| {
         let mut resources = resources.borrow_mut();
         if let Some(resource) = resources.get_mut(&id) {
@@ -142,6 +167,11 @@ fn delete_resource(id: u64) -> EczemaResult<()> {
 
 #[ic_cdk_macros::update]
 fn verify_resource(id: u64) -> EczemaResult<EczemaResource> {
+    let caller = ic_cdk::caller();
+    if !is_admin(&caller) {
+        return Err(EczemaError::Unauthorized);
+    }
+
     ECZEMA_RESOURCES.with(|resources| {
         let mut resources = resources.borrow_mut();
         if let Some(resource) = resources.get_mut(&id) {
@@ -171,15 +201,21 @@ fn search_resources(query: String) -> Vec<EczemaResource> {
 }
 
 #[ic_cdk_macros::init]
-fn init() {
-}
+fn init() {}
 
 #[ic_cdk_macros::pre_upgrade]
 fn pre_upgrade() {
+    ECZEMA_RESOURCES.with(|resources| ic_cdk::storage::stable_save((resources.borrow().clone(),)).unwrap());
+    NEXT_ID.with(|next_id| ic_cdk::storage::stable_save((next_id.borrow().clone(),)).unwrap());
 }
 
 #[ic_cdk_macros::post_upgrade]
 fn post_upgrade() {
+    let (stored_resources,): (HashMap<u64, EczemaResource>,) = ic_cdk::storage::stable_restore().unwrap();
+    let (stored_next_id,): (u64,) = ic_cdk::storage::stable_restore().unwrap();
+
+    ECZEMA_RESOURCES.with(|resources| *resources.borrow_mut() = stored_resources);
+    NEXT_ID.with(|next_id| *next_id.borrow_mut() = stored_next_id);
 }
 
 // Export the Candid interface
